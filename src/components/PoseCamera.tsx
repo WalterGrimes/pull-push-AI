@@ -1,88 +1,127 @@
-import React, { useRef, useEffect } from "react"
-import { Pose } from "@mediapipe/pose"
-import { drawConnectors, drawLandmarks } from "@mediapipe/drawing_utils"
+import React, { useEffect, useRef, useState } from "react";
+import type {Results } from "@mediapipe/pose";
+import { Pose,POSE_CONNECTIONS } from "@mediapipe/pose";
+import { Camera } from "@mediapipe/camera_utils";
+import { drawConnectors, drawLandmarks } from "@mediapipe/drawing_utils";
+import { getAngle, RepCounter } from "../utils/poseUtils";
 
-export const CameraFeed: React.FC = () => {
-  const videoRef = useRef<HTMLVideoElement>(null) // Ссылка на <video>
-  const canvasRef = useRef<HTMLCanvasElement>(null) // Ссылка на <canvas>
+const pose = new Pose({
+  locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
+});
+
+pose.setOptions({
+  modelComplexity: 1,
+  smoothLandmarks: true,
+  enableSegmentation: false,
+  minDetectionConfidence: 0.5,
+  minTrackingConfidence: 0.5
+});
+
+const counter = new RepCounter(60, 160); // настройка под локоть
+
+type PoseCameraProps = {
+  onResults?: (results: Results) => void;
+};
+
+export function PoseCamera({ onResults }: PoseCameraProps) {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [reps, setReps] = useState(0);
 
   useEffect(() => {
-    const video = videoRef.current // Берём DOM-элемент <video> из ссылки
-    const canvas = canvasRef.current // Берём DOM-элемент <canvas> из ссылки
-    const ctx = canvas?.getContext("2d") // Получаем 2D-контекст для рисования
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    if (!video || !canvas) return;
 
-    if (!video || !canvas || !ctx) return // Проверка, что всё готово
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
 
-    // Получаем поток с камеры и подставляем его в <video>
-    navigator.mediaDevices.getUserMedia({ video: true }).then((stream) => {
-      video.srcObject = stream // Присваиваем поток
-      video.play() // Запускаем воспроизведение
-    })
+    pose.onResults((results: Results) => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.save();
+      ctx.scale(-1, 1); // Mirror for front camera
+      ctx.translate(-canvas.width, 0);
+      ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
+      ctx.restore();
 
-    // Создаём экземпляр Pose и указываем, где брать файлы
-    const pose = new Pose({
-      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`,
-    })
-
-    // Устанавливаем параметры модели
-    pose.setOptions({
-      modelComplexity: 1, // Сложность модели
-      smoothLandmarks: true, // Сглаживание точек
-      minDetectionConfidence: 0.5, // Минимальная уверенность для обнаружения
-      minTrackingConfidence: 0.5, // Минимальная уверенность для трекинга
-    })
-
-    // Обработчик результатов, вызывается после каждого кадра
-    pose.onResults((results) => {
-      // Если что-то отсутствует — выходим
-      if (!video || !canvas || !ctx) return
-
-      // Подгоняем размер canvas под видео
-      canvas.width = video.videoWidth
-      canvas.height = video.videoHeight
-
-      // Очищаем canvas перед рисованием нового кадра
-      ctx.clearRect(0, 0, canvas.width, canvas.height)
-
-      // Рисуем текущее изображение (кадр)
-      ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height)
-
-      // Если найдены ключевые точки — рисуем скелет и точки
       if (results.poseLandmarks) {
-        drawConnectors(ctx, results.poseLandmarks, Pose.POSE_CONNECTIONS, {
-          color: "#00FF00",
-          lineWidth: 4,
-        })
-        drawLandmarks(ctx, results.poseLandmarks, {
-          color: "#FF0000",
-          lineWidth: 2,
-        })
+        // Flip horizontally to match video
+        const mirroredLandmarks = results.poseLandmarks.map(landmark => ({
+          ...landmark,
+          x: 1 - landmark.x
+        }));
+
+        drawConnectors(ctx, mirroredLandmarks, POSE_CONNECTIONS, { 
+          color: "#00FF00", 
+          lineWidth: 2 
+        });
+        
+        drawLandmarks(ctx, mirroredLandmarks, { 
+          color: "#FF0000", 
+          lineWidth: 1,
+          radius: 3
+        });
+
+        // Use left arm: shoulder(11) -> elbow(13) -> wrist(15)
+        const lm = mirroredLandmarks;
+        const leftAngle = getAngle(lm[11], lm[13], lm[15]);
+        const newCount = counter.update(leftAngle);
+        setReps(newCount);
       }
-    })
 
-    // Функция, которая будет отправлять каждый кадр в Pose
-    const onFrame = async () => {
-      if (video) {
-        await pose.send({ image: video }) // Отправляем кадр
-        requestAnimationFrame(onFrame) // Запрашиваем следующий кадр
+      // Передаем результаты наружу
+      if (onResults) {
+        onResults(results);
       }
-    }
+    });
 
-    // Запускаем цикл после загрузки данных видео
-    video.addEventListener("loadeddata", onFrame)
+    const camera = new Camera(video, {
+      onFrame: async () => {
+        await pose.send({ image: video });
+      },
+      width: 640,
+      height: 480,
+      facingMode: "user"
+    });
+    
+    camera.start();
 
-    // Чистим обработчик при размонтировании компонента
     return () => {
-      video.removeEventListener("loadeddata", onFrame)
-    }
-  }, []) // Пустой массив зависимостей — эффект выполняется один раз при монтировании
+      camera.stop();
+    };
+  }, [onResults]);
 
   return (
     <div style={{ position: "relative" }}>
-      {/* Скрытый элемент видео */}
-      <video ref={videoRef} style={{ display: "none" }} />
-      {/* Канвас для рисования скелета */}
-      <canvas ref={canvasRef} style={{ width: "100%" }} />
+      <video 
+        ref={videoRef} 
+        style={{ display: "none" }} 
+        playsInline
+      />
+      <canvas 
+        ref={canvasRef} 
+        width={640} 
+        height={480} 
+        style={{ 
+          width: '100%', 
+          height: 'auto',
+          border: "1px solid #444",
+          borderRadius: "10px",
+          background: "#222"
+        }} 
+      />
+      <div style={{
+        position: "absolute",
+        top: "10px",
+        left: "10px",
+        background: "rgba(0, 0, 0, 0.7)",
+        color: "white",
+        padding: "8px 15px",
+        borderRadius: "20px",
+        fontSize: "1.2rem"
+      }}>
+        Повторения: <strong>{reps}</strong>
+      </div>
     </div>
-  )
+  );
 }
