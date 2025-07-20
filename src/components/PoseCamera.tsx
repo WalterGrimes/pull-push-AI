@@ -1,82 +1,64 @@
-import React, { useEffect, useRef, useState } from "react";
-import type {Results } from "@mediapipe/pose";
-import { Pose,POSE_CONNECTIONS } from "@mediapipe/pose";
+import React, { useRef, useEffect, useCallback } from "react";
+import { Pose, POSE_CONNECTIONS } from "@mediapipe/pose";
 import { Camera } from "@mediapipe/camera_utils";
 import { drawConnectors, drawLandmarks } from "@mediapipe/drawing_utils";
-import { getAngle, RepCounter } from "../utils/poseUtils";
 
 const pose = new Pose({
   locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
 });
 
 pose.setOptions({
-  modelComplexity: 1,
-  smoothLandmarks: true,
+  modelComplexity: 0, // Уменьшаем сложность модели
+  smoothLandmarks: false, // Отключаем сглаживание для производительности
   enableSegmentation: false,
   minDetectionConfidence: 0.5,
   minTrackingConfidence: 0.5
 });
 
-const counter = new RepCounter(60, 160); // настройка под локоть
+export function PoseCamera({ onResults }: { onResults?: (results: Results) => void }) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const requestRef = useRef<number>();
+  const lastTimeRef = useRef<number>(0);
+  const cameraRef = useRef<Camera>();
 
-type PoseCameraProps = {
-  onResults?: (results: Results) => void;
-};
+  // Обработчик результатов с throttle
+  const handleResults = useCallback((results: Results) => {
+    const now = Date.now();
+    if (now - lastTimeRef.current < 33) return; // Ограничиваем ~30 FPS
+    
+    lastTimeRef.current = now;
+    
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext('2d');
+    if (!canvas || !ctx) return;
 
-export function PoseCamera({ onResults }: PoseCameraProps) {
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [reps, setReps] = useState(0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    // Рисуем только когда нужно
+    if (results.poseLandmarks) {
+      drawConnectors(ctx, results.poseLandmarks, POSE_CONNECTIONS, {
+        color: '#00FF00',
+        lineWidth: 2
+      });
+      drawLandmarks(ctx, results.poseLandmarks, {
+        color: '#FF0000',
+        lineWidth: 1
+      });
+    }
+
+    onResults?.(results);
+  }, [onResults]);
 
   useEffect(() => {
     const video = videoRef.current;
-    const canvas = canvasRef.current;
-    if (!video || !canvas) return;
+    if (!video) return;
 
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    pose.onResults(handleResults);
 
-    pose.onResults((results: Results) => {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.save();
-      ctx.scale(-1, 1); // Mirror for front camera
-      ctx.translate(-canvas.width, 0);
-      ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
-      ctx.restore();
-
-      if (results.poseLandmarks) {
-        // Flip horizontally to match video
-        const mirroredLandmarks = results.poseLandmarks.map(landmark => ({
-          ...landmark,
-          x: 1 - landmark.x
-        }));
-
-        drawConnectors(ctx, mirroredLandmarks, POSE_CONNECTIONS, { 
-          color: "#00FF00", 
-          lineWidth: 2 
-        });
-        
-        drawLandmarks(ctx, mirroredLandmarks, { 
-          color: "#FF0000", 
-          lineWidth: 1,
-          radius: 3
-        });
-
-        // Use left arm: shoulder(11) -> elbow(13) -> wrist(15)
-        const lm = mirroredLandmarks;
-        const leftAngle = getAngle(lm[11], lm[13], lm[15]);
-        const newCount = counter.update(leftAngle);
-        setReps(newCount);
-      }
-
-      // Передаем результаты наружу
-      if (onResults) {
-        onResults(results);
-      }
-    });
-
-    const camera = new Camera(video, {
+    cameraRef.current = new Camera(video, {
       onFrame: async () => {
+        if (video.readyState < 2) return;
         await pose.send({ image: video });
       },
       width: 640,
@@ -84,44 +66,27 @@ export function PoseCamera({ onResults }: PoseCameraProps) {
       facingMode: "user"
     });
     
-    camera.start();
+    cameraRef.current.start();
 
     return () => {
-      camera.stop();
+      cameraRef.current?.stop();
+      cancelAnimationFrame(requestRef.current);
     };
-  }, [onResults]);
+  }, [handleResults]);
 
   return (
-    <div style={{ position: "relative" }}>
-      <video 
-        ref={videoRef} 
-        style={{ display: "none" }} 
-        playsInline
-      />
-      <canvas 
-        ref={canvasRef} 
-        width={640} 
-        height={480} 
-        style={{ 
-          width: '100%', 
+    <div style={{ position: 'relative' }}>
+      <video ref={videoRef} style={{ display: 'none' }} playsInline />
+      <canvas
+        ref={canvasRef}
+        width={640}
+        height={480}
+        style={{
+          width: '100%',
           height: 'auto',
-          border: "1px solid #444",
-          borderRadius: "10px",
-          background: "#222"
-        }} 
+          transform: 'scaleX(-1)' // Зеркальное отображение
+        }}
       />
-      <div style={{
-        position: "absolute",
-        top: "10px",
-        left: "10px",
-        background: "rgba(0, 0, 0, 0.7)",
-        color: "white",
-        padding: "8px 15px",
-        borderRadius: "20px",
-        fontSize: "1.2rem"
-      }}>
-        Повторения: <strong>{reps}</strong>
-      </div>
     </div>
   );
 }
