@@ -2,7 +2,7 @@ import React, { useState, useMemo } from "react";
 import { PoseCamera } from "./components/PoseCamera";
 import "./App.css";
 import PushUpTracker from "./components/PushUpTracker";
-import { PullUpTracker } from "./components/PullUpTracker";
+import PullUpTracker from "./components/PullUpTracker";
 import type { Results } from '@mediapipe/pose';
 import TurnCamera from "./components/TurnCamera";
 
@@ -65,7 +65,7 @@ function App() {
                             <PoseCamera onResults={handleResults} />
                         ) : (
                             <div style={{ color: 'white' }}>
-                                Обработка загруженного видео...
+                                Идет обработка,пожалуйста подождите...
                             </div>
                         )}
                         {mode === "pushup" && <PushUpTracker results={poseResults} />}

@@ -1,163 +1,137 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import type { Results } from "@mediapipe/pose";
 import { getAngle } from "../utils/poseUtils";
 
 interface PullUpTrackerProps {
-    results: Results | null;
+  results: Results | null;
 }
 
-export function PullUpTracker({ results }: PullUpTrackerProps) {
-    const [reps, setReps] = useState(0);
-    const [isDown, setIsDown] = useState(false);
-    const [elbowAngle, setElbowAngle] = useState<number | null>(null);
-    const [feedback, setFeedback] = useState<string>("Начните подтягивание");
-    const [shoulderAngle, setShoulderAngle] = useState<number | null>(null);
-    const [chestHeight, setChestHeight] = useState<number | null>(null);
+export const PullUpTracker = React.memo(({ results }: PullUpTrackerProps) => {
+  const [count, setCount] = useState(0);
+  const [isDown, setIsDown] = useState(false);
+  const [feedback, setFeedback] = useState("Возьмитесь за перекладину");
+  const [showFeedback, setShowFeedback] = useState(false);
+  const barPositionRef = useRef<{x: number, y: number} | null>(null);
 
-    useEffect(() => {
-        if (!results || !results.poseLandmarks) {
-            setFeedback("Встаньте перед камерой");
-            return;
-        }
+  useEffect(() => {
+    if (!results || !results.poseLandmarks) {
+      setFeedback("Встаньте под перекладину");
+      setShowFeedback(true);
+      return;
+    }
 
-        // Левые точки (зеркальное отображение)
-        const leftShoulder = results.poseLandmarks[11];
-        const leftElbow = results.poseLandmarks[13];
-        const leftWrist = results.poseLandmarks[15];
-        
-        // Правые точки
-        const rightShoulder = results.poseLandmarks[12];
-        const rightElbow = results.poseLandmarks[14];
-        const rightWrist = results.poseLandmarks[16];
-        
-        // Точки для определения положения груди
-        const leftHip = results.poseLandmarks[23];
-        const rightHip = results.poseLandmarks[24];
+    const landmarks = results.poseLandmarks;
+    const leftWrist = landmarks[15];
+    const rightWrist = landmarks[16];
+    const leftElbow = landmarks[13];
+    const rightElbow = landmarks[14];
+    const leftShoulder = landmarks[11];
+    const rightShoulder = landmarks[12];
+    const nose = landmarks[0];
 
-        // Проверка видимости ключевых точек
-        const visibilityThreshold = 0.6;
-        const visiblePoints = [
-            leftShoulder, leftElbow, leftWrist,
-            rightShoulder, rightElbow, rightWrist,
-            leftHip, rightHip
-        ].every(point => point && point.visibility > visibilityThreshold);
+    if (!barPositionRef.current && leftWrist && rightWrist) {
+      barPositionRef.current = {
+        x: (leftWrist.x + rightWrist.x) / 2,
+        y: (leftWrist.y + rightWrist.y) / 2
+      };
+      setFeedback("Начните подтягивания");
+      setShowFeedback(true);
+    }
 
-        if (!visiblePoints) {
-            setFeedback("Встаньте так, чтобы было видно руки и корпус");
-            return;
-        }
+    const isHandsOnBar = barPositionRef.current && 
+      Math.abs(leftWrist.y - barPositionRef.current.y) < 0.05 && 
+      Math.abs(rightWrist.y - barPositionRef.current.y) < 0.05;
 
-        // Рассчитываем углы для обеих рук
-        const leftElbowAngle = getAngle(leftShoulder, leftElbow, leftWrist);
-        const rightElbowAngle = getAngle(rightShoulder, rightElbow, rightWrist);
-        const avgElbowAngle = (leftElbowAngle + rightElbowAngle) / 2;
-        setElbowAngle(avgElbowAngle);
+    if (!isHandsOnBar) {
+      setFeedback("Держитесь за перекладину!");
+      setShowFeedback(true);
+      return;
+    }
 
-        // Угол плеча (для проверки подъема груди)
-        const leftShoulderAngle = getAngle(leftElbow, leftShoulder, leftHip);
-        const rightShoulderAngle = getAngle(rightElbow, rightShoulder, rightHip);
-        const avgShoulderAngle = (leftShoulderAngle + rightShoulderAngle) / 2;
-        setShoulderAngle(avgShoulderAngle);
+    const leftAngle = getAngle(leftShoulder, leftElbow, leftWrist);
+    const rightAngle = getAngle(rightShoulder, rightElbow, rightWrist);
+    const avgAngle = (leftAngle + rightAngle) / 2;
 
-        // Высота груди относительно бедер (нормализованная координата Y)
-        const shoulderY = (leftShoulder.y + rightShoulder.y) / 2;
-        const hipY = (leftHip.y + rightHip.y) / 2;
-        const chestHeightRatio = (shoulderY - hipY) / (hipY * 2);
-        setChestHeight(chestHeightRatio);
+    const isChinAboveBar = nose && barPositionRef.current && 
+      nose.y < barPositionRef.current.y;
 
-        // Логика проверки техники
-        if (avgElbowAngle > 160 && !isDown) {
-            // Полностью опустились
-            setIsDown(true);
-            setFeedback("Отлично! Теперь подтянитесь грудью к перекладине");
-        } else if (avgElbowAngle < 60 && isDown) {
-            // Подтягивание вверх
-            if (chestHeightRatio < -0.1) {
-                // Грудь поднята достаточно высоко
-                setReps(prev => prev + 1);
-                setIsDown(false);
-                setFeedback("Отличное повторение! Теперь опуститесь полностью");
-            } else {
-                setFeedback("Тянитесь грудью к перекладине, работайте спиной!");
-            }
-        } else if (isDown && avgElbowAngle > 120 && avgElbowAngle < 160) {
-            setFeedback("Опускайтесь ниже! Руки должны полностью выпрямляться");
-        } else if (!isDown && avgElbowAngle < 60 && chestHeightRatio > -0.05) {
-            setFeedback("Сведите лопатки, тянитесь грудью вверх!");
-        }
-    }, [results]);
+    if (avgAngle > 160 && !isDown) {
+      setIsDown(true);
+      setFeedback("Опускайтесь полностью");
+      setShowFeedback(true);
+    } else if (avgAngle < 60 && isDown) {
+      if (isChinAboveBar) {
+        setCount(prev => prev + 1);
+        setIsDown(false);
+        setFeedback("✓ Отличное повторение!");
+      } else {
+        setFeedback("Подбородок выше перекладины!");
+      }
+      setShowFeedback(true);
+    }
 
-    return (
+    const timer = setTimeout(() => setShowFeedback(false), 2000);
+    return () => clearTimeout(timer);
+  }, [results]);
+
+  return (
+    <div style={{
+      position: "absolute",
+      top: "20px",
+      right: "20px",
+      background: "rgba(30, 30, 40, 0.9)",
+      color: "#f0f0f0",
+      padding: "12px 16px",
+      borderRadius: "12px",
+      fontSize: "0.95rem",
+      border: "1px solid #444",
+      boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
+      minWidth: "160px",
+      zIndex: 100,
+      transition: "opacity 0.3s",
+      opacity: showFeedback ? 1 : 0.7
+    }}>
+      <div style={{ 
+        display: "flex", 
+        justifyContent: "space-between",
+        alignItems: "center",
+        marginBottom: "8px"
+      }}>
+        <span>Подтягивания:</span>
+        <strong style={{ 
+          fontSize: "1.3rem", 
+          color: "#2196f3",
+          minWidth: "30px",
+          textAlign: "right"
+        }}>{count}</strong>
+      </div>
+      
+      <div style={{
+        height: "3px",
+        background: "#333",
+        borderRadius: "2px",
+        margin: "6px 0",
+        overflow: "hidden"
+      }}>
         <div style={{
-            position: "absolute",
-            bottom: 20,
-            right: 20,
-            background: "rgba(30, 30, 40, 0.95)",
-            color: "#f0f0f0",
-            padding: "16px 24px",
-            borderRadius: "15px",
-            fontSize: "1.1rem",
-            border: "1px solid #555",
-            boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
-            minWidth: "280px",
-            maxWidth: "320px",
-            textAlign: "left"
-        }}>
-            <div style={{ 
-                display: "flex", 
-                justifyContent: "space-between",
-                marginBottom: "12px"
-            }}>
-                <span>Подтягивания:</span>
-                <strong style={{ fontSize: "1.4rem", color: "#2196f3" }}>{reps}</strong>
-            </div>
-            
-            <div style={{ 
-                margin: "12px 0",
-                padding: "10px",
-                background: "rgba(50, 50, 60, 0.6)",
-                borderRadius: "8px",
-                minHeight: "60px",
-                display: "flex",
-                alignItems: "center"
-            }}>
-                <span style={{ color: "#4caf50" }}>{feedback}</span>
-            </div>
-            
-            <div style={{ 
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr",
-                gap: "8px",
-                fontSize: "0.9rem",
-                color: "#aaa"
-            }}>
-                <div>Угол в локтях: {elbowAngle ? `${elbowAngle.toFixed(1)}°` : "N/A"}</div>
-                <div>Угол плеч: {shoulderAngle ? `${shoulderAngle.toFixed(1)}°` : "N/A"}</div>
-            </div>
-            
-            <div style={{
-                height: "6px",
-                background: "#333",
-                marginTop: "12px",
-                borderRadius: "3px",
-                overflow: "hidden"
-            }}>
-                <div style={{
-                    width: `${isDown ? 100 : 0}%`,
-                    height: "100%",
-                    background: "#2196f3",
-                    transition: "width 0.3s ease"
-                }} />
-            </div>
-            
-            <div style={{
-                marginTop: "8px",
-                fontSize: "0.8rem",
-                color: "#777",
-                fontStyle: "italic"
-            }}>
-                Советы: Полное опускание → Подъем грудью → Контроль спины
-            </div>
-        </div>
-    );
-}
+          width: `${isDown ? 100 : 0}%`,
+          height: "100%",
+          background: "#2196f3",
+          transition: "width 0.3s ease"
+        }} />
+      </div>
+      
+      <div style={{
+        fontSize: "0.85rem",
+        color: showFeedback ? "#fff" : "#aaa",
+        height: "20px",
+        transition: "color 0.3s",
+        whiteSpace: "nowrap"
+      }}>
+        {showFeedback ? feedback : "Выполняйте подтягивания"}
+      </div>
+    </div>
+  );
+});
+
+export default PullUpTracker;
