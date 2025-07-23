@@ -1,3 +1,5 @@
+// src/App.tsx
+
 import React, { useState, useMemo } from "react";
 import { PoseCamera } from "./components/PoseCamera";
 import "./App.css";
@@ -5,6 +7,8 @@ import PushUpTracker from "./components/PushUpTracker";
 import PullUpTracker from "./components/PullUpTracker";
 import type { Results } from '@mediapipe/pose';
 import TurnCamera from "./components/TurnCamera";
+// Импортируем новый компонент
+import { VideoFileProcessor } from "./components/VideoFileProcessor";
 
 function App() {
     const [mode, setMode] = useState<"pushup" | "pullup">("pushup");
@@ -15,6 +19,7 @@ function App() {
 
     const toggleIsCamera = () => {
         setIsCameraOn(prev => !prev);
+        setVideoFile(null); // Сбрасываем файл при переключении на камеру
         setProcessingMode("live");
     }
 
@@ -23,16 +28,16 @@ function App() {
         if (!file) return;
 
         setVideoFile(file);
-        setIsCameraOn(true);
+        setIsCameraOn(true); // Включаем "камеру", чтобы показать область обработки
         setProcessingMode("upload");
     }
 
+    // Оставляем useMemo для троттлинга
     const handleResults = useMemo(() => {
         let lastProcessed = 0;
-
         return (results: Results) => {
             const now = Date.now();
-            if (now - lastProcessed < 100) return; // Ограничение 10 FPS
+            if (now - lastProcessed < 100) return; // Ограничение ~10 FPS
             lastProcessed = now;
             setPoseResults(results);
         };
@@ -43,6 +48,7 @@ function App() {
             <header className="app-header">
                 <h1>Pull-Push</h1>
                 <div className="mode-selector">
+                    {/* ... кнопки выбора режима ... */}
                     <button
                         className={mode === "pushup" ? "active" : ""}
                         onClick={() => setMode("pushup")}
@@ -64,14 +70,35 @@ function App() {
                         {processingMode === "live" ? (
                             <PoseCamera onResults={handleResults} />
                         ) : (
-                            <div style={{ color: 'white' }}>
-                                Идет обработка,пожалуйста подождите...
-                            </div>
+                            videoFile && <VideoFileProcessor videoFile={videoFile} onResults={handleResults} />
                         )}
+
+                        {/* Трекеры */}
                         {mode === "pushup" && <PushUpTracker results={poseResults} />}
                         {mode === "pullup" && <PullUpTracker results={poseResults} />}
+
+                        {/* 🚪 Кнопка выхода */}
+                        <button
+                            onClick={() => {
+                                setIsCameraOn(false);
+                                setVideoFile(null);
+                                setPoseResults(null);
+                            }}
+                            style={{
+                                marginTop: "12px",
+                                backgroundColor: "#444",
+                                color: "#fff",
+                                padding: "10px 16px",
+                                borderRadius: "8px",
+                                border: "none",
+                                cursor: "pointer"
+                            }}
+                        >
+                            Выйти из режима анализа
+                        </button>
                     </>
                 )}
+
             </div>
 
             <div className="camera-controls">
@@ -82,7 +109,6 @@ function App() {
                 />
             </div>
 
-            {/* Возвращаем блок с инструкциями */}
             <div className="instructions">
                 <h3>Как использовать:</h3>
                 <ul>
@@ -104,3 +130,7 @@ function App() {
 }
 
 export default App;
+
+
+
+

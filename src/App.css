@@ -78,3 +78,37 @@
   margin-bottom: 10px;
   line-height: 1.5;
 }
+
+/* src/App.css */
+
+/* ... (все ваши предыдущие стили) ... */
+
+/* Добавляем position: relative к контейнеру, 
+   чтобы абсолютно позиционировать кнопку внутри него */
+.camera-container {
+  position: relative;
+  /* Другие ваши стили для этого контейнера... */
+}
+
+/* Стили для новой кнопки выхода */
+.exit-button {
+  position: absolute;
+  top: 15px;
+  left: 15px;
+  z-index: 200; /* Должен быть выше трекеров (у них z-index: 100) */
+  background-color: rgba(239, 68, 68, 0.8); /* Полупрозрачный красный */
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: bold;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+  backdrop-filter: blur(4px); /* Красивый эффект размытия под кнопкой */
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.exit-button:hover {
+  background-color: rgba(220, 38, 38, 1); /* Ярко-красный при наведении */
+}
