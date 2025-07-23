@@ -1,5 +1,3 @@
-// src/App.tsx
-
 import React, { useState, useMemo } from "react";
 import { PoseCamera } from "./components/PoseCamera";
 import "./App.css";
@@ -9,6 +7,8 @@ import type { Results } from '@mediapipe/pose';
 import TurnCamera from "./components/TurnCamera";
 // Импортируем новый компонент
 import { VideoFileProcessor } from "./components/VideoFileProcessor";
+import { Link } from "react-router-dom";
+
 
 function App() {
     const [mode, setMode] = useState<"pushup" | "pullup">("pushup");
@@ -108,6 +108,10 @@ function App() {
                     handleVideoUpload={handleVideoUpload}
                 />
             </div>
+
+            <Link to="/register">
+                <button>Перейти к регистрации</button>
+            </Link>
 
             <div className="instructions">
                 <h3>Как использовать:</h3>
