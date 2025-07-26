@@ -1,16 +1,45 @@
 import React, { useEffect, useState } from "react";
 import type { Results } from "@mediapipe/pose";
 import { getAngle } from "../utils/poseUtils";
+import { auth, db } from "../firebase";
+import { doc, updateDoc, serverTimestamp, getDoc } from "firebase/firestore";
 
 interface PushUpTrackerProps {
   results: Results | null;
+  onExerciseComplete?: (count: number) => void;
 }
 
-const PushUpTracker = React.memo(({ results }: PushUpTrackerProps) => {
+const PushUpTracker = React.memo(({ results, onExerciseComplete }: PushUpTrackerProps) => {
   const [count, setCount] = useState(0);
   const [isDown, setIsDown] = useState(false);
   const [feedback, setFeedback] = useState("Примите положение упора лёжа");
   const [showFeedback, setShowFeedback] = useState(false);
+  const [lastSavedCount, setLastSavedCount] = useState(0);
+
+  const saveResult = async (finalCount: number) => {
+    const user = auth.currentUser;
+    if (!user || finalCount <= lastSavedCount) return;
+
+    try {
+      const userDocRef = doc(db, "users", user.uid);
+      const userDoc = await getDoc(userDocRef);
+
+      if (userDoc.exists()) {
+        const currentRecord = userDoc.data().pushupRecord || 0;
+
+        if (finalCount > currentRecord) {
+          await updateDoc(userDocRef, {
+            pushupRecord: finalCount,
+            pushupRecordDate: serverTimestamp()
+          });
+          console.log("Новый рекорд по отжиманиям сохранен!");
+          setLastSavedCount(finalCount);
+        }
+      }
+    } catch (error) {
+      console.error("Ошибка сохранения результата:", error);
+    }
+  };
 
   useEffect(() => {
     if (!results || !results.poseLandmarks) {
@@ -23,8 +52,8 @@ const PushUpTracker = React.memo(({ results }: PushUpTrackerProps) => {
     const rightAngle = getAngle(landmarks[12], landmarks[14], landmarks[16]);
     const avgAngle = (leftAngle + rightAngle) / 2;
 
-    const bodyAlignment = Math.abs(landmarks[11].y - landmarks[23].y) + 
-                         Math.abs(landmarks[12].y - landmarks[24].y);
+    const bodyAlignment = Math.abs(landmarks[11].y - landmarks[23].y) +
+      Math.abs(landmarks[12].y - landmarks[24].y);
 
     if (avgAngle > 160 && !isDown) {
       setIsDown(true);
@@ -32,9 +61,13 @@ const PushUpTracker = React.memo(({ results }: PushUpTrackerProps) => {
       setShowFeedback(true);
     } else if (avgAngle < 90 && isDown) {
       if (bodyAlignment < 0.2) {
-        setCount(prev => prev + 1);
+        const newCount = count + 1;
+        setCount(newCount);
         setIsDown(false);
         setFeedback("✓ Повторение засчитано");
+        if (onExerciseComplete) {
+          onExerciseComplete(newCount);
+        }
       } else {
         setFeedback("Держите корпус ровно!");
       }
@@ -44,6 +77,14 @@ const PushUpTracker = React.memo(({ results }: PushUpTrackerProps) => {
     const timer = setTimeout(() => setShowFeedback(false), 2000);
     return () => clearTimeout(timer);
   }, [results]);
+
+  useEffect(() => {
+    return () => {
+      if (count > 0) {
+        saveResult(count);
+      }
+    };
+  }, [count]);
 
   return (
     <div style={{
@@ -62,21 +103,21 @@ const PushUpTracker = React.memo(({ results }: PushUpTrackerProps) => {
       transition: "opacity 0.3s",
       opacity: showFeedback ? 1 : 0.7
     }}>
-      <div style={{ 
-        display: "flex", 
+      <div style={{
+        display: "flex",
         justifyContent: "space-between",
         alignItems: "center",
         marginBottom: "8px"
       }}>
         <span>Отжимания:</span>
-        <strong style={{ 
-          fontSize: "1.3rem", 
+        <strong style={{
+          fontSize: "1.3rem",
           color: "#4caf50",
           minWidth: "30px",
           textAlign: "right"
         }}>{count}</strong>
       </div>
-      
+
       <div style={{
         height: "3px",
         background: "#333",
@@ -91,7 +132,7 @@ const PushUpTracker = React.memo(({ results }: PushUpTrackerProps) => {
           transition: "width 0.3s ease"
         }} />
       </div>
-      
+
       <div style={{
         fontSize: "0.85rem",
         color: showFeedback ? "#fff" : "#aaa",

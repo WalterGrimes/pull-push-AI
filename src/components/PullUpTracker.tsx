@@ -1,6 +1,8 @@
 import React, { useEffect, useState, useRef } from "react";
 import type { Results } from "@mediapipe/pose";
 import { getAngle } from "../utils/poseUtils";
+import { auth, db } from "../firebase";
+import { doc, updateDoc, serverTimestamp, getDoc } from "firebase/firestore";
 
 interface PullUpTrackerProps {
   results: Results | null;

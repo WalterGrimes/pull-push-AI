@@ -1,7 +1,8 @@
-// src/firebase.js
+// src/firebase.ts
 import { initializeApp } from "firebase/app";
-import { getAuth } from "firebase/auth"; // Добавляем auth
-// import { getAnalytics } from "firebase/analytics"; // можно убрать, если не нужен
+import { getAuth } from "firebase/auth";
+import { getFirestore } from "firebase/firestore";
+import { getStorage } from "firebase/storage"; // Добавляем импорт Storage
 
 const firebaseConfig = {
   apiKey: "AIzaSyBXWBVDoIwS5kOBKDF90BrEcR8M32Cv7m0",
@@ -13,8 +14,10 @@ const firebaseConfig = {
   measurementId: "G-Z4ZZ1T3MQY"
 };
 
-// Инициализация
 const app = initializeApp(firebaseConfig);
-// const analytics = getAnalytics(app); // не нужен для регистрации
-export const auth = getAuth(app); // экспортируем auth
- 
+const auth = getAuth(app);
+const db = getFirestore(app);
+const storage = getStorage(app); // Инициализируем Storage
+
+export { auth, db, storage }; // Экспортируем storage
+export type { User } from "firebase/auth";
