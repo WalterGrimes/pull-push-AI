@@ -1,105 +1,108 @@
-// src/pages/Leaderboard.tsx
-import React, { useState, useEffect } from 'react';
-import { collection, query, orderBy, limit, getDocs } from 'firebase/firestore';
-import { db } from '../firebase';
+import { useState, useEffect } from 'react';
+import { collection, query, orderBy, onSnapshot } from 'firebase/firestore';
+import { db, auth } from '../firebase';
+import { useAuthState } from 'react-firebase-hooks/auth';
 import './Leaderboard.css';
 
-interface Leader {
-  uid: string;
+interface User {
+  id: string;
   nickname: string;
-  photoURL: string;
-  record: number;
-  date: string;
+  photoURL?: string;
+  pushupRecord: number;
+  pullupRecord: number;
 }
 
 const Leaderboard = () => {
-  const [pushupLeaders, setPushupLeaders] = useState<Leader[]>([]);
-  const [pullupLeaders, setPullupLeaders] = useState<Leader[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [users, setUsers] = useState<User[]>([]);
+  const [activeTab, setActiveTab] = useState<'pushup' | 'pullup'>('pushup');
+  const [user] = useAuthState(auth);
+  const [showUploadModal, setShowUploadModal] = useState(false);
 
+  // Загрузка данных пользователей
   useEffect(() => {
-    const fetchLeaders = async () => {
-      setLoading(true);
-      try {
-        // Запрос для отжиманий
-        const pushupQuery = query(collection(db, 'users'), orderBy('pushupRecord', 'desc'), limit(100));
-        const pushupSnapshot = await getDocs(pushupQuery);
-        const pushupData = pushupSnapshot.docs.map(doc => {
-          const data = doc.data();
-          return {
-            uid: doc.id,
-            nickname: data.nickname,
-            photoURL: data.photoURL,
-            record: data.pushupRecord,
-            date: data.pushupRecordDate ? new Date(data.pushupRecordDate.seconds * 1000).toLocaleDateString() : '-'
-          };
-        }).filter(d => d.record > 0);
-        setPushupLeaders(pushupData);
-
-        // Запрос для подтягиваний
-        const pullupQuery = query(collection(db, 'users'), orderBy('pullupRecord', 'desc'), limit(100));
-        const pullupSnapshot = await getDocs(pullupQuery);
-        const pullupData = pullupSnapshot.docs.map(doc => {
-          const data = doc.data();
-          return {
-            uid: doc.id,
-            nickname: data.nickname,
-            photoURL: data.photoURL,
-            record: data.pullupRecord,
-            date: data.pullupRecordDate ? new Date(data.pullupRecordDate.seconds * 1000).toLocaleDateString() : '-'
-          };
-        }).filter(d => d.record > 0);
-        setPullupLeaders(pullupData);
-
-      } catch (error) {
-        console.error("Ошибка загрузки списка лидеров:", error);
-      }
-      setLoading(false);
-    };
-
-    fetchLeaders();
-  }, []);
-
-  const renderLeaderboard = (title: string, leaders: Leader[]) => (
-    <div className="leaderboard-section">
-      <h2>{title}</h2>
-      {leaders.length === 0 ? <p>Здесь пока пусто.</p> :
-        <table>
-          <thead>
-            <tr>
-              <th>Место</th>
-              <th>Пользователь</th>
-              <th>Результат</th>
-              <th>Дата рекорда</th>
-            </tr>
-          </thead>
-          <tbody>
-            {leaders.map((leader, index) => (
-              <tr key={leader.uid}>
-                <td>{index + 1}</td>
-                <td className="user-cell">
-                  <img src={leader.photoURL || '/default-avatar.png'} alt={leader.nickname} />
-                  <span>{leader.nickname}</span>
-                </td>
-                <td>{leader.record}</td>
-                <td>{leader.date}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      }
-    </div>
-  );
-
-  if (loading) return <p>Загрузка...</p>;
+    const q = query(
+      collection(db, 'users'),
+      orderBy(activeTab + 'Record', 'desc')
+    );
+    
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setUsers(snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }) as User));
+    });
+    
+    return () => unsubscribe();
+  }, [activeTab]);
 
   return (
-    <div className="leaderboard-container">
-      <h1>🏆 Списки Лидеров 🏆</h1>
-      <div className="leaderboards">
-        {renderLeaderboard("Отжимания", pushupLeaders)}
-        {renderLeaderboard("Подтягивания", pullupLeaders)}
+    <div className="leaderboard">
+      <h1>Leaderboard</h1>
+      
+      <div className="tabs">
+        <button
+          className={activeTab === 'pushup' ? 'active' : ''}
+          onClick={() => setActiveTab('pushup')}
+        >
+          Push-Ups
+        </button>
+        <button
+          className={activeTab === 'pullup' ? 'active' : ''}
+          onClick={() => setActiveTab('pullup')}
+        >
+          Pull-Ups
+        </button>
       </div>
+      
+      {user ? (
+        <button 
+          onClick={() => setShowUploadModal(true)}
+          className="add-result-btn"
+        >
+          + Add Your Result
+        </button>
+      ) : (
+        <p className="auth-notice">
+          <a href="/login">Sign in</a> to submit your results
+        </p>
+      )}
+      
+      <table>
+        <thead>
+          <tr>
+            <th>Rank</th>
+            <th>User</th>
+            <th>Record</th>
+          </tr>
+        </thead>
+        <tbody>
+          {users.map((user, index) => (
+            <tr key={user.id}>
+              <td>{index + 1}</td>
+              <td className="user-cell">
+                <img 
+                  src={user.photoURL || '/default-avatar.png'} 
+                  alt={user.nickname}
+                />
+                <span>{user.nickname}</span>
+              </td>
+              <td>{user[activeTab + 'Record']}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      
+      {showUploadModal && (
+        <div className="modal">
+          <h3>Submit Your {activeTab === 'pushup' ? 'Push-Up' : 'Pull-Up'} Result</h3>
+          <p>Record a video of your workout for verification</p>
+          <input type="file" accept="video/*" />
+          <div className="modal-actions">
+            <button onClick={() => setShowUploadModal(false)}>Cancel</button>
+            <button>Submit</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
