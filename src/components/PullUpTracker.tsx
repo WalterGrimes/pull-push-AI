@@ -6,15 +6,51 @@ import { doc, updateDoc, serverTimestamp, getDoc } from "firebase/firestore";
 
 interface PullUpTrackerProps {
   results: Results | null;
+  onExerciseComplete?: (count: number) => void;
 }
 
-export const PullUpTracker = React.memo(({ results }: PullUpTrackerProps) => {
+const PullUpTracker = React.memo(({ results, onExerciseComplete }: PullUpTrackerProps) => {
   const [count, setCount] = useState(0);
   const [isDown, setIsDown] = useState(false);
   const [feedback, setFeedback] = useState("Возьмитесь за перекладину");
   const [showFeedback, setShowFeedback] = useState(false);
   const barPositionRef = useRef<{x: number, y: number} | null>(null);
+  const [lastSavedCount, setLastSavedCount] = useState(0);
 
+  // Сохранение результата
+  const saveResult = async (finalCount: number) => {
+    const user = auth.currentUser;
+    if (!user || finalCount <= lastSavedCount) return;
+
+    try {
+      const userDocRef = doc(db, "users", user.uid);
+      const userDoc = await getDoc(userDocRef);
+
+      if (userDoc.exists()) {
+        const currentRecord = userDoc.data().pullupRecord || 0;
+
+        if (finalCount > currentRecord) {
+          await updateDoc(userDocRef, {
+            pullupRecord: finalCount,
+            pullupRecordDate: serverTimestamp()
+          });
+          console.log("Новый рекорд по подтягиваниям сохранен!");
+          setLastSavedCount(finalCount);
+        }
+
+        // Добавляем в историю тренировок
+        await addDoc(collection(db, "users", user.uid, "workouts"), {
+          exerciseType: "pullup",
+          count: finalCount,
+          date: serverTimestamp()
+        });
+      }
+    } catch (error) {
+      console.error("Ошибка сохранения результата:", error);
+    }
+  };
+
+  // Анализ позы
   useEffect(() => {
     if (!results || !results.poseLandmarks) {
       setFeedback("Встаньте под перекладину");
@@ -31,6 +67,7 @@ export const PullUpTracker = React.memo(({ results }: PullUpTrackerProps) => {
     const rightShoulder = landmarks[12];
     const nose = landmarks[0];
 
+    // Определяем положение перекладины
     if (!barPositionRef.current && leftWrist && rightWrist) {
       barPositionRef.current = {
         x: (leftWrist.x + rightWrist.x) / 2,
@@ -57,15 +94,20 @@ export const PullUpTracker = React.memo(({ results }: PullUpTrackerProps) => {
     const isChinAboveBar = nose && barPositionRef.current && 
       nose.y < barPositionRef.current.y;
 
+    // Логика подсчета повторений
     if (avgAngle > 160 && !isDown) {
       setIsDown(true);
       setFeedback("Опускайтесь полностью");
       setShowFeedback(true);
     } else if (avgAngle < 60 && isDown) {
       if (isChinAboveBar) {
-        setCount(prev => prev + 1);
+        const newCount = count + 1;
+        setCount(newCount);
         setIsDown(false);
         setFeedback("✓ Отличное повторение!");
+        if (onExerciseComplete) {
+          onExerciseComplete(newCount);
+        }
       } else {
         setFeedback("Подбородок выше перекладины!");
       }
@@ -75,6 +117,15 @@ export const PullUpTracker = React.memo(({ results }: PullUpTrackerProps) => {
     const timer = setTimeout(() => setShowFeedback(false), 2000);
     return () => clearTimeout(timer);
   }, [results]);
+
+  // Сохранение при размонтировании
+  useEffect(() => {
+    return () => {
+      if (count > 0) {
+        saveResult(count);
+      }
+    };
+  }, [count]);
 
   return (
     <div style={{

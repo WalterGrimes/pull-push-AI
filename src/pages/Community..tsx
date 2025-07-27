@@ -1,24 +1,49 @@
 import { useState, useEffect } from 'react';
-import { collection, addDoc, serverTimestamp, query, orderBy, onSnapshot } from 'firebase/firestore';
-import { db, auth } from '../firebase';
+import { 
+  collection, 
+  addDoc, 
+  serverTimestamp, 
+  query, 
+  orderBy, 
+  onSnapshot,
+  doc,
+  updateDoc,
+  deleteDoc,
+  arrayUnion,
+  arrayRemove
+} from 'firebase/firestore';
+import { ref, deleteObject } from 'firebase/storage';
+import { db, storage, auth } from '../firebase';
 import { useAuthState } from 'react-firebase-hooks/auth';
+import PostForm from '../components/Postform';
 import './Community.css';
+import { Link } from 'react-router-dom';
 
 interface Post {
   id: string;
   authorId: string;
   authorName: string;
   text: string;
+  imageUrl?: string;
   createdAt: any;
   likes: string[];
 }
 
+interface Comment {
+  id: string;
+  authorId: string;
+  authorName: string;
+  text: string;
+  createdAt: any;
+}
+
 const Community = () => {
   const [posts, setPosts] = useState<Post[]>([]);
-  const [newPostText, setNewPostText] = useState('');
-  const [user] = useAuthState(auth);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [user] = useAuthState(auth);
+  const [comments, setComments] = useState<Record<string, Comment[]>>({});
+  const [newComments, setNewComments] = useState<Record<string, string>>({});
 
   // Загрузка постов
   useEffect(() => {
@@ -41,25 +66,59 @@ const Community = () => {
     return () => unsubscribe();
   }, []);
 
-  const handleCreatePost = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!user || !newPostText.trim()) return;
+  // Загрузка комментариев для поста
+  const loadComments = async (postId: string) => {
+    const q = query(
+      collection(db, 'posts', postId, 'comments'),
+      orderBy('createdAt', 'asc')
+    );
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const commentsData = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Comment[];
+      setComments(prev => ({ ...prev, [postId]: commentsData }));
+    });
+    return unsubscribe;
+  };
+
+  // Добавление комментария
+  const addComment = async (postId: string) => {
+    if (!user || !newComments[postId]?.trim()) return;
+    
+    try {
+      await addDoc(collection(db, 'posts', postId, 'comments'), {
+        text: newComments[postId],
+        authorId: user.uid,
+        authorName: user.displayName || 'Аноним',
+        createdAt: serverTimestamp(),
+      });
+      setNewComments(prev => ({ ...prev, [postId]: '' }));
+    } catch (error) {
+      console.error("Ошибка добавления комментария:", error);
+    }
+  };
+
+  // Создание поста
+  const handleCreatePost = async (text: string, imageUrl?: string) => {
+    if (!user) return;
 
     try {
       await addDoc(collection(db, 'posts'), {
-        text: newPostText,
+        text,
+        imageUrl: imageUrl || null,
         authorId: user.uid,
         authorName: user.displayName || 'Аноним',
         createdAt: serverTimestamp(),
         likes: []
       });
-      setNewPostText('');
     } catch (err) {
       console.error("Ошибка создания поста:", err);
-      setError('Ошибка при публикации');
+      throw new Error('Не удалось опубликовать пост');
     }
   };
 
+  // Лайк поста
   const handleLike = async (postId: string) => {
     if (!user) return;
     
@@ -81,6 +140,34 @@ const Community = () => {
     }
   };
 
+  // Удаление поста
+  const handleDeletePost = async (postId: string, imageUrl?: string) => {
+    if (!user) return;
+    
+    try {
+      if (imageUrl) {
+        const imageRef = ref(storage, imageUrl);
+        await deleteObject(imageRef).catch(err => {
+          console.error("Ошибка удаления изображения:", err);
+        });
+      }
+      
+      await deleteDoc(doc(db, 'posts', postId));
+    } catch (err) {
+      console.error("Ошибка удаления поста:", err);
+      setError('Не удалось удалить пост');
+    }
+  };
+
+  if (!user) {
+    return (
+      <div className="auth-required-message">
+        <h2>Требуется авторизация</h2>
+        <p>Чтобы просматривать сообщество, пожалуйста <Link to="/login">войдите</Link> или <Link to="/register">зарегистрируйтесь</Link></p>
+      </div>
+    );
+  }
+
   if (loading) return <div className="loading">Загрузка ленты...</div>;
   if (error) return <div className="error">{error}</div>;
 
@@ -88,20 +175,7 @@ const Community = () => {
     <div className="community-container">
       <h1>Сообщество</h1>
       
-      {user && (
-        <form onSubmit={handleCreatePost} className="post-form">
-          <textarea
-            value={newPostText}
-            onChange={(e) => setNewPostText(e.target.value)}
-            placeholder="Что нового?"
-            required
-            maxLength={500}
-          />
-          <button type="submit" disabled={!newPostText.trim()}>
-            Опубликовать
-          </button>
-        </form>
-      )}
+      <PostForm onSubmit={handleCreatePost} />
 
       <div className="posts-list">
         {posts.length === 0 ? (
@@ -110,19 +184,73 @@ const Community = () => {
           posts.map(post => (
             <div key={post.id} className="post-card">
               <div className="post-header">
-                <span className="author">{post.authorName}</span>
-                <span className="date">
-                  {post.createdAt?.toDate().toLocaleString() || 'недавно'}
-                </span>
+                <div className="post-author">
+                  <span className="author-name">{post.authorName}</span>
+                  <span className="post-date">
+                    {post.createdAt?.toDate().toLocaleString() || 'недавно'}
+                  </span>
+                </div>
+                
+                {post.authorId === user?.uid && (
+                  <button 
+                    onClick={() => handleDeletePost(post.id, post.imageUrl)}
+                    className="delete-post"
+                    title="Удалить пост"
+                  >
+                    ×
+                  </button>
+                )}
               </div>
-              <p className="post-text">{post.text}</p>
+              
+              {post.text && <p className="post-text">{post.text}</p>}
+              
+              {post.imageUrl && (
+                <div className="post-image">
+                  <img src={post.imageUrl} alt="Пост" />
+                </div>
+              )}
+              
               <div className="post-actions">
                 <button 
                   onClick={() => handleLike(post.id)}
-                  className={post.likes.includes(user?.uid || '') ? 'liked' : ''}
+                  className={`like-button ${post.likes.includes(user?.uid || '') ? 'liked' : ''}`}
                 >
                   ❤️ {post.likes.length}
                 </button>
+              </div>
+
+              {/* Секция комментариев */}
+              <div className="comments-section">
+                <button 
+                  onClick={() => loadComments(post.id)}
+                  className="show-comments-btn"
+                >
+                  {comments[post.id] ? 'Скрыть комментарии' : 'Показать комментарии'}
+                </button>
+
+                {comments[post.id] && (
+                  <div className="comments-list">
+                    {comments[post.id].map(comment => (
+                      <div key={comment.id} className="comment">
+                        <strong>{comment.authorName}: </strong>
+                        <span>{comment.text}</span>
+                      </div>
+                    ))}
+
+                    <div className="add-comment">
+                      <input
+                        type="text"
+                        value={newComments[post.id] || ''}
+                        onChange={(e) => setNewComments(prev => ({
+                          ...prev,
+                          [post.id]: e.target.value
+                        }))}
+                        placeholder="Написать комментарий..."
+                      />
+                      <button onClick={() => addComment(post.id)}>Отправить</button>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           ))

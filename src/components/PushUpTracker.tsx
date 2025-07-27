@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import type { Results } from "@mediapipe/pose";
 import { getAngle } from "../utils/poseUtils";
 import { auth, db } from "../firebase";
-import { doc, updateDoc, serverTimestamp, getDoc } from "firebase/firestore";
+import { doc, updateDoc, serverTimestamp, getDoc, collection, addDoc } from "firebase/firestore";
 
 interface PushUpTrackerProps {
   results: Results | null;
@@ -35,6 +35,13 @@ const PushUpTracker = React.memo(({ results, onExerciseComplete }: PushUpTracker
           console.log("Новый рекорд по отжиманиям сохранен!");
           setLastSavedCount(finalCount);
         }
+
+        // Добавляем в историю тренировок
+        await addDoc(collection(db, "users", user.uid, "workouts"), {
+          exerciseType: "pushup",
+          count: finalCount,
+          date: serverTimestamp()
+        });
       }
     } catch (error) {
       console.error("Ошибка сохранения результата:", error);
