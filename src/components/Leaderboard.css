@@ -34,3 +34,17 @@ th {
   margin-right: 10px;
   object-fit: cover;
 }
+.dev-banner {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  background: #fffae6;
+  border: 1px solid #f1c40f;
+  color: #7d6608;
+  padding: 12px 16px;
+  border-radius: 8px;
+  font-size: 14px;
+  max-width: 300px;
+  z-index: 10;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+}

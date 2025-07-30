@@ -18,27 +18,31 @@ const Leaderboard = () => {
   const [user] = useAuthState(auth);
   const [showUploadModal, setShowUploadModal] = useState(false);
 
-  // Загрузка данных пользователей
   useEffect(() => {
     const q = query(
       collection(db, 'users'),
       orderBy(activeTab + 'Record', 'desc')
     );
-    
+
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setUsers(snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       }) as User));
     });
-    
+
     return () => unsubscribe();
   }, [activeTab]);
 
   return (
     <div className="leaderboard">
+      {/* ⚠️ БАННЕР В РАЗРАБОТКЕ */}
+      <div className="dev-banner">
+        🚧 Раздел в разработке. Скоро вы сможете выкладывать свои рекорды по отжиманиям и подтягиваниям, подтверждая их видео, и попадать в таблицу лидеров.
+      </div>
+
       <h1>Leaderboard</h1>
-      
+
       <div className="tabs">
         <button
           className={activeTab === 'pushup' ? 'active' : ''}
@@ -53,9 +57,9 @@ const Leaderboard = () => {
           Pull-Ups
         </button>
       </div>
-      
+
       {user ? (
-        <button 
+        <button
           onClick={() => setShowUploadModal(true)}
           className="add-result-btn"
         >
@@ -66,7 +70,7 @@ const Leaderboard = () => {
           <a href="/login">Sign in</a> to submit your results
         </p>
       )}
-      
+
       <table>
         <thead>
           <tr>
@@ -80,8 +84,8 @@ const Leaderboard = () => {
             <tr key={user.id}>
               <td>{index + 1}</td>
               <td className="user-cell">
-                <img 
-                  src={user.photoURL || '/default-avatar.png'} 
+                <img
+                  src={user.photoURL || '/default-avatar.png'}
                   alt={user.nickname}
                 />
                 <span>{user.nickname}</span>
@@ -91,7 +95,7 @@ const Leaderboard = () => {
           ))}
         </tbody>
       </table>
-      
+
       {showUploadModal && (
         <div className="modal">
           <h3>Submit Your {activeTab === 'pushup' ? 'Push-Up' : 'Pull-Up'} Result</h3>
